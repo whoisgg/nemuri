@@ -1,0 +1,1619 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nemuri</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@200;300;400&family=Shippori+Mincho:wght@400;500&display=swap">
+
+<style>
+/* ===========================================================================
+   NEMURI — réplica del chasis de zara.com con el logotipo Nemuri
+
+   Tres vistas en un archivo: home (paneles a pantalla completa),
+   catálogo (rejilla a sangre) y producto. Lo que se copia de Zara es
+   la estructura y el motion; el logotipo, la paleta y la voz son Nemuri.
+
+   TRANSICIONES — View Transitions API. La imagen sobre la que se hace clic
+   lleva view-transition-name y el navegador la interpola hasta su lugar en
+   la ficha; el resto hace cross-fade. Los mismos nombres sirven tal cual
+   para las transiciones ENTRE DOCUMENTOS de Dawn (@view-transition
+   { navigation: auto }), que es como esto se lleva a Shopify sin headless.
+   Firefox no las soporta todavía: degrada a navegación seca.
+   =========================================================================== */
+:root{
+  --paper:      #F4F3F1;
+  --paper-pure: #FFFFFF;
+  --plate:      #EDECE9;
+  --ink:        #16161A;
+  --ink-mid:    #6E6D6A;
+  --ink-soft:   #A8A6A1;
+  --hair:       #DBD9D4;
+  --rojo:       #D0202B;      /* aproximado — pendiente N-06 */
+
+  --face-brand: "Jost", "Futura", "Century Gothic", sans-serif;
+  --face-jp:    "Shippori Mincho", "Hiragino Mincho ProN", serif;
+
+  --t-ui: 11px;               /* toda la interfaz de Zara vive en este cuerpo */
+  --track: .06em;
+  --edge: 22px;               /* el margen de la utilería fija */
+  --vt: .62s;                 /* duración de la transición */
+  --viento: .4;               /* intensidad del viento: 0 nada, 1 tormenta */
+  --vt-ease: cubic-bezier(.62,.01,.2,1);
+}
+
+*{ box-sizing: border-box; }
+
+body{
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--face-brand);
+  font-weight: 300;
+  font-size: var(--t-ui);
+  letter-spacing: var(--track);
+  -webkit-font-smoothing: antialiased;
+}
+a{ color: inherit; text-decoration: none; }
+p{ margin: 0; }
+ul{ margin: 0; padding: 0; list-style: none; }
+/* letter-spacing va aparte de font: inherit — no entra en la abreviatura, y la
+   hoja del navegador la fija en normal para los controles de formulario. Sin
+   esto el tracking de .ui no llegaba a ninguna etiqueta que fuera un button,
+   así que las que se podían clickear iban más apretadas que las que no. */
+button{ font: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+:focus-visible{ outline: 1px solid var(--rojo); outline-offset: 3px; }
+
+.ui{ font-size: var(--t-ui); letter-spacing: var(--track); text-transform: uppercase; line-height: 1.55; }
+
+/* ===========================================================================
+   UTILERÍA FIJA — las tres esquinas de Zara, siempre encima de la imagen
+   =========================================================================== */
+.rules{
+  position: fixed; top: var(--edge); left: var(--edge); z-index: 70;
+  width: 64px; height: 17px;
+  display: flex; flex-direction: column; justify-content: space-between;
+}
+.rules span{ display: block; height: 1px; background: #fff; }
+.rules span:nth-child(1){ width: 100%; }
+.rules span:nth-child(2){ width: 78%; }
+.rules span:nth-child(3){ width: 100%; }
+
+.seek{
+  position: fixed; top: var(--edge); right: var(--edge); z-index: 70;
+  width: clamp(130px, 13vw, 200px);
+  text-align: right;
+  padding-bottom: 8px;
+  border-bottom: 1px solid currentColor;
+  color: #fff;
+}
+
+.util{
+  position: fixed; right: var(--edge); top: calc(var(--edge) + 110px); z-index: 70;
+  text-align: right;
+  color: rgba(255,255,255,.9);
+}
+.util li + li{ margin-top: 10px; }
+.count{ border-left: 1px solid currentColor; border-right: 1px solid currentColor; padding: 0 4px; margin-left: 4px; }
+
+/* El rótulo de sección: el "The New" centrado y en serif */
+.tag{
+  position: fixed; top: calc(var(--edge) - 6px); left: 50%; transform: translateX(-50%); z-index: 65;
+  padding: 4px 14px;
+  text-align: center;
+  font-family: var(--face-jp);
+  font-size: 17px;
+  letter-spacing: .01em;
+  text-transform: none;
+  color: #fff;
+  cursor: pointer;
+}
+.tag b{ font-weight: 400; }
+/* En escritorio manda la fila de categorías; el rótulo queda para teléfono */
+.tag{ display: none; }
+
+.nav{
+  position: fixed; top: calc(var(--edge) - 1px); left: 50%; transform: translateX(-50%);
+  z-index: 65;
+  display: flex; gap: clamp(13px, 1.8vw, 32px);
+  white-space: nowrap;
+  color: #fff;
+}
+.nav button{ color: inherit; transition: color .3s ease; }
+.nav button:hover{ color: var(--rojo); }
+
+/* El velo del encabezado: la utilería va en mix-blend-mode difference, que
+   sobre una foto clara da gris sobre gris. Esta banda fija aparece solo
+   cuando hay imagen debajo del encabezado y le devuelve el contraste; sobre
+   papel se apaga y la utilería pasa a tinta plana. */
+.velo{
+  /* Llega hasta abajo de la columna de Bolsa / Sesión / Ayuda: ahora la
+     utilería va en blanco liso y sin este velo se pierde sobre una foto
+     clara. Antes iba en mix-blend-mode difference, que se defendía solo pero
+     sobre un muro cálido de medio tono daba gris azulado y no blanco. */
+  position: fixed; inset: 0 0 auto 0; height: 250px; z-index: 64;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(12,11,10,.46) 0%, rgba(12,11,10,.30) 26%, rgba(12,11,10,.16) 52%, rgba(12,11,10,.06) 76%, rgba(12,11,10,0) 100%);
+  opacity: 0; transition: opacity .45s var(--vt-ease);
+}
+body[data-foto="true"] .velo{ opacity: 1; }
+
+/* Sobre foto, blanco con una sombra mínima: el velo solo entra cuando la
+   imagen es a sangre, y sobre una foto clara sin velo el blanco se pierde */
+body[data-foto-izq="true"] .rules{ filter: drop-shadow(0 1px 3px rgba(10,10,12,.5)); }
+body[data-foto-izq="true"] .scroll,
+body[data-foto-centro="true"] .tag,
+body[data-foto-centro="true"] .nav,
+body[data-foto-der="true"] .seek,
+body[data-foto-der="true"] .util{ text-shadow: 0 1px 6px rgba(10,10,12,.45); }
+
+/* Cada pieza de la utilería toma el color de lo que tiene debajo, por sector */
+body[data-foto-izq="false"] .rules span{ background: var(--ink); }
+body[data-foto-izq="false"] .scroll{ color: var(--ink); }
+body[data-foto-centro="false"] .tag,
+body[data-foto-centro="false"] .nav{ color: var(--ink); }
+body[data-foto-der="false"] .seek{ color: var(--ink); }
+body[data-foto-der="false"] .util{ color: var(--ink-mid); }
+
+/* ===========================================================================
+   LOGOTIPO GIGANTE — el lugar que ocupa el wordmark de Zara sobre la foto
+   =========================================================================== */
+.mark{
+  display: inline-flex; align-items: center;
+  gap: .12em;
+  font-weight: 200;
+  letter-spacing: .12em;
+  line-height: .8;
+  font-size: clamp(54px, 13.5vw, 230px);
+}
+.mark .e{ width: .6em; height: .72em; fill: currentColor; }
+.mark--sm{ font-size: 15px; letter-spacing: .3em; font-weight: 400; }
+.mark--xs{ font-size: 8px; letter-spacing: .26em; font-weight: 400; }
+
+/* ===========================================================================
+   HUECOS DE IMAGEN
+   =========================================================================== */
+.ph{ position: relative; margin: 0; overflow: hidden; background: var(--plate); }
+.ph img{ position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.ph canvas{ position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.carton{
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 26%; min-width: 54px; aspect-ratio: 2 / 5;
+  background: var(--paper-pure);
+  box-shadow: 16px 18px 34px rgba(30,28,26,.13);
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
+  padding: 11% 9%;
+}
+.carton--rojo{ background: var(--rojo); box-shadow: 16px 18px 34px rgba(120,20,26,.22); }
+.carton__d{ font-size: 7px; font-weight: 300; line-height: 1.7; color: var(--ink-mid); letter-spacing: .02em; }
+.carton--rojo .carton__d{ color: rgba(255,255,255,.82); }
+.carton--rojo .mark--xs{ color: #fff; }
+
+/* ===========================================================================
+   VISTAS
+   =========================================================================== */
+.view[hidden]{ display: none; }
+
+/* --- HOME: paneles a pantalla completa ---------------------------------- */
+.panel{
+  position: relative;
+  height: 100svh; min-height: 480px;
+}
+.panel .ph{ position: absolute; inset: 0; }
+
+/* El panel con viento: el filtro hace el temblor de hoja y el vaivén de CSS
+   pone la ráfaga lenta por debajo. La escala de más tapa el borde que deja
+   el desplazamiento. Se apaga solo cuando el panel sale de pantalla, que si
+   no el filtro repinta a pantalla completa todo el rato. */
+/* Dos capas: el muro re-iluminado, quieto, y encima la sombra recortada con
+   transparencia real. Solo la sombra lleva el filtro y el vaivén, así que el
+   muro no se mueve ni un píxel. */
+.ph--capas img{ position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+/* Los dos paneles son las mitades de una sola foto vertical. Para que la
+   juntura no se rompa al recortar, cada mitad se ancla del lado del corte:
+   el panel 1 por abajo y el panel 2 por arriba. Lo que se pierda al ajustar
+   proporciones se pierde lejos de la costura, nunca en ella. */
+.panel--viento .ph--capas img{ object-position: 50% 100%; }
+.panel--dice .ph img{ object-position: 50% 0%; }
+.ph--capas .capa-sombra{
+  /* el pivote va donde la rama entra al cuadro, arriba a la izquierda: así
+     las puntas recorren y el nacimiento queda quieto */
+  transform-origin: 2% 0%;
+  will-change: transform, filter;
+  filter: url(#viento);
+  animation: rafaga 18s ease-in-out infinite;
+
+  /* El racimo de hojas amontonadas se aclaró en el alfa del propio PNG, no
+     con una máscara acá: así la corrección viaja con la foto y sigue cayendo
+     sobre las hojas aunque cambien object-position o la proporción del panel.
+     Ver la nota en img/README.md. */
+}
+
+/* El vaivén es una ráfaga, no un péndulo: tramos largos casi quietos y dos
+   empujones, uno fuerte y uno menor. Va en CSS y no en JS porque las
+   animaciones de transform corren en el compositor y siguen andando aunque
+   el navegador deje de entregar cuadros a rAF — que fue exactamente lo que
+   hizo desaparecer el viento cuando lo pasé a JS. La amplitud sale de
+   --viento, así que sigue habiendo una sola perilla. */
+@keyframes rafaga{
+  0%, 7%   { transform: scale(1.012) rotate(0deg) translate3d(0, 0, 0); }
+  17%      { transform: scale(1.012) rotate(calc(-.70deg * var(--viento))) translate3d(calc(-15px * var(--viento)), 0, 0); }
+  29%      { transform: scale(1.012) rotate(calc(.34deg * var(--viento)))  translate3d(calc(7px * var(--viento)), 0, 0); }
+  41%      { transform: scale(1.012) rotate(calc(-.20deg * var(--viento))) translate3d(calc(-4px * var(--viento)), 0, 0); }
+  54%, 68% { transform: scale(1.012) rotate(0deg) translate3d(0, 0, 0); }
+  79%      { transform: scale(1.012) rotate(calc(.40deg * var(--viento)))  translate3d(calc(9px * var(--viento)), 0, 0); }
+  90%      { transform: scale(1.012) rotate(calc(-.12deg * var(--viento))) translate3d(calc(-3px * var(--viento)), 0, 0); }
+  100%     { transform: scale(1.012) rotate(0deg) translate3d(0, 0, 0); }
+}
+
+.panel--viento[data-quieto="true"] .capa-sombra{ filter: none; animation-play-state: paused; }
+
+@media (prefers-reduced-motion: reduce){
+  .ph--capas .capa-sombra{ filter: none; animation: none; }
+}
+.panel__scrim{
+  position: absolute; inset: 0;
+  /* Sin velo propio. Cada panel tenía uno oscuro arriba y otro abajo, y en la
+     juntura entre los dos se sumaban: eso era la banda que hacía leer el corte
+     como cambio de sección. La utilería la cubre .velo, que es fijo al
+     viewport y por lo tanto nunca cae sobre la costura. */
+  background: none;
+  pointer-events: none;
+}
+/* El logotipo no pertenece a ningún panel: queda clavado y los fondos pasan
+   por detrás, que es lo que hace Zara. Acompaña hasta el corte de Novedades
+   —sobre papel se pone en tinta— y se retira cuando entra la tienda. */
+.marca-fija{
+  position: fixed; z-index: 58;
+  right: var(--edge); bottom: clamp(60px, 13vh, 130px);
+  pointer-events: none;
+  color: var(--paper-pure);
+  text-shadow: 0 2px 30px rgba(10,10,12,.32);
+  transition: opacity .7s var(--vt-ease), color .5s var(--vt-ease);
+}
+body[data-foto="false"] .marca-fija{ color: var(--ink); text-shadow: none; }
+.marca-fija[data-ver="false"]{ opacity: 0; }
+/* El indicador de scroll: la palabra en vertical y un filete que baja. Ocupa
+   el lugar donde antes iba la bajada de campaña, y reemplaza también a la
+   flecha que estaba abajo a la derecha — dos señales para lo mismo era una
+   de más. */
+.scroll{
+  position: absolute; left: var(--edge); bottom: clamp(26px, 5vh, 46px);
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  color: rgba(255,255,255,.85);
+  pointer-events: none;
+}
+.scroll span{ writing-mode: vertical-rl; letter-spacing: .3em; }
+.scroll i{
+  width: 1px; height: clamp(38px, 7vh, 64px);
+  background: currentColor; opacity: .45;
+  transform-origin: top center;
+  animation: cae 3.4s cubic-bezier(.5,0,.5,1) infinite;
+}
+@keyframes cae{
+  0%, 12%  { transform: scaleY(0); opacity: 0; }
+  38%      { transform: scaleY(1); opacity: .45; }
+  74%      { transform: scaleY(1); opacity: .45; }
+  100%     { transform: scaleY(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce){
+  .scroll i{ animation: none; opacity: .45; }
+}
+.panel__cap{
+  position: absolute; left: var(--edge); bottom: clamp(26px, 5vh, 46px);
+  color: rgba(255,255,255,.85);
+  text-shadow: 0 1px 14px rgba(10,10,12,.5);
+  max-width: 34ch;
+}
+
+/* El segundo panel no lleva logotipo: lleva la explicación. El lavado a
+   papel sobre la derecha de la foto es lo que la deja leerse en tinta. */
+/* Sin lavado a papel. Para que el texto se lea sobre la foto se oscurece el
+   borde izquierdo y el texto va claro: la imagen sigue viéndose entera,
+   que es lo que el blanco no permitía. */
+.panel--dice .panel__scrim{
+  /* solo el lavado lateral, que es lo que sostiene el texto. Entra
+     desvanecido desde arriba: si arranca de golpe en el borde del panel,
+     ese canto se lee como una línea en la juntura. */
+  background: linear-gradient(90deg, rgba(14,12,10,.60) 0%, rgba(14,12,10,.34) 18%, rgba(14,12,10,.08) 34%, rgba(14,12,10,0) 46%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 22%, #000 100%);
+  mask-image: linear-gradient(180deg, transparent 0%, #000 22%, #000 100%);
+}
+.panel--dice .dice{ color: var(--paper); }
+.panel--dice .dice .ui{ color: rgba(244,243,241,.62); }
+.panel--dice .dice__p{ color: rgba(244,243,241,.84); }
+.panel--dice .dice__mas{ border-bottom-color: rgba(244,243,241,.7); }
+.dice{
+  position: absolute; z-index: 2;
+  /* a la izquierda: a la derecha están la columna de utilería y el logotipo
+     fijo, y el texto se les montaba encima */
+  /* arriba y no al medio: en la mitad de la foto están los frascos y el texto
+     se ensuciaba. Arriba a la izquierda el fondo es muro liso. */
+  left: var(--edge);
+  top: clamp(96px, 15vh, 150px);
+  width: min(30ch, 25vw);
+  color: var(--ink);
+}
+/* Achicado a propósito: sin fondo que lo sostenga, el texto grande sobre la
+   foto se ensucia. Chico y con medida corta se lee y no tapa la imagen. */
+.dice__t{
+  font-family: var(--face-jp);
+  font-size: clamp(16px, 1.5vw, 21px);
+  line-height: 1.5; letter-spacing: .01em;
+  margin: 12px 0 0; font-weight: 400;
+}
+.dice__p{
+  margin-top: 14px;
+  font-size: 11px; line-height: 1.95; letter-spacing: .02em;
+  color: var(--ink);
+}
+.dice__corto{ display: none; }
+.dice__mas{
+  display: inline-block; margin-top: 24px;
+  border-bottom: 1px solid var(--ink); padding-bottom: 2px;
+}
+
+/* El corte "Novedades": la página se queda clavada ahí mientras la barra
+   se llena, y al completarse NAVEGA a la tienda — cambia el address, igual
+   que Zara. Por eso el efecto nunca corre de vuelta: volver es el botón
+   atrás del navegador, no scrollear para arriba. */
+.hold{ height: 230svh; position: relative; }
+.hold[data-hecho="1"]{ height: 0; overflow: hidden; }
+.turn{
+  position: sticky; top: 0;
+  height: 100svh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px;
+  overflow: hidden;
+  /* el papel propio y el grupo aislado son lo que el multiply del agua usa de
+     fondo: sin esto mezclaría contra lo que pase por detrás al scrollear */
+  background: var(--paper);
+  isolation: isolate;
+}
+
+/* El agua del corte. Se multiplica contra el papel en vez de esconderse bajo
+   un velo: así los claros del agua se vuelven papel solos y quedan la onda y
+   la hoja, sin película encima. Tres números la gobiernan y están acá arriba
+   a propósito — --agua-color es cuánto azul sobrevive (el clip es agua azul y
+   la marca es papel y tinta), --agua-luz cuánto se aclara antes de multiplicar
+   (subirla deja más papel y más aire para el texto), y --agua-lavado es el
+   resto de velo que queda para apoyar la lectura. Los valores son la variante
+   C de probar-agua.html, que es la que eligió el usuario mirando las tres. */
+.turn{ --agua-color: .34; --agua-luz: 1.24; --agua-lavado: .18; }
+.turn__agua{
+  position: absolute; inset: 0; z-index: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  filter: saturate(var(--agua-color)) brightness(var(--agua-luz)) contrast(.82);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.turn__velo{
+  position: absolute; inset: 0; z-index: 1;
+  background: var(--paper);
+  opacity: var(--agua-lavado);
+  pointer-events: none;
+}
+/* El texto del corte va por encima de las dos capas */
+.turn__t, .turn__sub, .turn__line{ position: relative; z-index: 2; }
+.turn__t{ font-family: var(--face-jp); font-size: clamp(20px, 2.4vw, 30px); letter-spacing: .01em; }
+.turn__sub{ color: var(--ink-mid); transition: opacity .4s ease; }
+.turn__line{
+  position: relative;
+  width: 1px; height: clamp(90px, 17vh, 160px);
+  margin-top: 22px;
+  background: var(--hair);
+}
+.turn__line i{
+  position: absolute; inset: 0;
+  background: var(--ink);
+  transform: scaleY(var(--p, 0));
+  transform-origin: top center;
+}
+
+/* ===========================================================================
+   TIENDA — tres tiempos: dos columnas, el mosaico, y la galería
+   =========================================================================== */
+
+/* La cédula: un rectángulo chico de papel dentro de la propia imagen, abajo
+   a la izquierda, que aparece al pasar por encima. Va en las dos columnas y
+   en las cuatro piezas del mosaico, incluidas las chicas. */
+.cell{ position: relative; display: block; width: 100%; text-align: left; cursor: pointer; }
+.cell__meta{
+  position: absolute; left: 12px; bottom: 11px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 7px 10px 8px;
+  pointer-events: none;
+}
+.cell__meta b{ font-weight: 400; display: block; }
+.cell__meta span{ color: var(--ink-mid); }
+
+/* 1 · dos columnas, a sangre */
+.duo{
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  background: var(--paper);
+}
+.duo .cell{ position: relative; }
+.duo .ph{ aspect-ratio: 4 / 5; }
+
+/* 2 · MOSAICO — subdivisión de Fibonacci sobre una malla de 13 × 8:
+   cuadrados de 8, 5 y 3, y el resto en una sola pieza de 2 × 3.
+   Cuatro piezas; el tamaño hace la jerarquía. */
+.mosaico{
+  display: grid;
+  grid-template-columns: repeat(13, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  aspect-ratio: 13 / 8;
+  gap: 1px;
+  margin-top: 1px;
+  background: var(--paper);
+}
+.mosaico .cell{ position: relative; }
+.mosaico .ph{ position: absolute; inset: 0; aspect-ratio: auto; }
+.m-a{ grid-area: 1 / 1 / 9 / 9;  }
+.m-b{ grid-area: 1 / 9 / 6 / 14; }
+.m-c{ grid-area: 6 / 9 / 9 / 12; }
+.m-d{ grid-area: 6 / 12 / 9 / 14; }
+
+/* 3 · COMPRAR POR CATEGORÍA — el carrusel de Aesop: título en serif grande
+   arriba a la izquierda, fichas cuadradas sin borde ni sombra, el nombre en
+   texto plano debajo, y los chevrons afuera del riel, centrados en la altura
+   de la imagen. Nada de cajas ni de texto encima de la foto. */
+.entradas{ padding: clamp(70px, 12vh, 150px) var(--edge) 0; }
+.entradas__titulo{
+  font-family: var(--face-jp);
+  font-size: clamp(25px, 3.2vw, 44px);
+  font-weight: 400; letter-spacing: .005em; line-height: 1.2;
+  margin: 0 0 clamp(26px, 4.5vh, 54px);
+}
+
+.carrusel{ position: relative; }
+.rail{
+  display: grid; grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 4 * clamp(10px, 1.4vw, 22px)) / 5);
+  gap: clamp(10px, 1.4vw, 22px);
+  overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
+  margin: 0 calc(var(--edge) * -1); padding: 0 var(--edge);
+  scrollbar-width: none;
+}
+.rail::-webkit-scrollbar{ display: none; }
+.paso{ text-align: left; scroll-snap-align: start; }
+.paso .ph{ aspect-ratio: 1 / 1; }
+.paso .ph img{ transition: transform 1.2s var(--vt-ease); }
+.paso:hover .ph img{ transform: scale(1.012); }
+.paso__t{
+  font-family: var(--face-jp); font-size: clamp(14px, 1.2vw, 17px);
+  text-transform: none; letter-spacing: .01em; padding-top: 14px;
+}
+
+/* 4 · BLOQUES — mitad imagen a sangre, mitad texto, alternando lado.
+   Eyebrow, titular en serif, párrafo corto y botón de contorno con flecha. */
+.bloque{
+  display: grid; grid-template-columns: 1.15fr 1fr;
+  align-items: center;
+  margin-top: clamp(80px, 14vh, 170px);
+}
+.bloque--der{ grid-template-columns: 1fr 1.15fr; }
+.bloque--der .bloque__art{ order: 2; }
+.bloque__art{ position: relative; }
+.bloque__art .ph{ aspect-ratio: 5 / 4; }
+.bloque__txt{ padding: clamp(24px, 5vw, 86px); max-width: 58ch; }
+.bloque__eyebrow{ color: var(--ink-mid); }
+.bloque__t{
+  font-family: var(--face-jp);
+  font-size: clamp(22px, 2.6vw, 36px);
+  font-weight: 400; line-height: 1.32; letter-spacing: .005em;
+  margin: 14px 0 0;
+}
+.bloque__p{
+  margin-top: 18px; max-width: 45ch;
+  font-size: 12px; line-height: 2.1; letter-spacing: .02em; color: var(--ink-mid);
+}
+.bloque__lista{
+  margin-top: 22px; display: flex; flex-wrap: wrap; gap: 8px 22px;
+  color: var(--ink-mid);
+}
+.bloque__lista button{ color: inherit; transition: color .3s ease; }
+.bloque__lista button:hover{ color: var(--ink); }
+.btn{
+  display: inline-flex; align-items: center; justify-content: space-between;
+  gap: 40px; min-width: 250px;
+  margin-top: 28px; padding: 15px 20px;
+  border: 1px solid var(--ink);
+  transition: background .35s var(--vt-ease), color .35s var(--vt-ease);
+}
+.btn:hover{ background: var(--ink); color: var(--paper); }
+
+/* Volver arriba: el círculo fino abajo a la derecha */
+.arriba{
+  position: fixed; right: var(--edge); bottom: var(--edge); z-index: 72;
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid var(--hair); background: var(--paper);
+  display: grid; place-items: center;
+  font-size: 14px; color: var(--ink);
+  opacity: 0; visibility: hidden;
+  transition: opacity .4s ease, visibility .4s, border-color .3s ease;
+}
+.arriba[data-ver="true"]{ opacity: 1; visibility: visible; }
+.arriba:hover{ border-color: var(--ink); }
+
+/* ===========================================================================
+   PRODUCTO — la ficha al modo Zara: la foto manda y al costado una columna
+   angosta. Nombre, precio, un filete, la referencia, el botón a todo el ancho
+   de la columna, la descripción corta y los desplegables. Nada fijo ni
+   flotando: se recorre y se termina.
+   =========================================================================== */
+.pdp{
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  min-height: 100svh;
+}
+.pdp__art .ph{ position: sticky; top: 0; height: 100svh; }
+.pdp__side{
+  display: flex; flex-direction: column; justify-content: center;
+  padding: calc(var(--edge) + 120px) clamp(24px, 6vw, 96px) clamp(60px, 10vh, 120px);
+}
+.pdp__side > *{ max-width: 34ch; }
+.pdp__tipo{ color: var(--ink-soft); }
+.pdp__name{
+  font-family: var(--face-jp); font-size: clamp(18px, 1.8vw, 24px);
+  font-weight: 400; margin: 8px 0 0; letter-spacing: .01em;
+}
+.pdp__price{ color: var(--ink-mid); padding-top: 6px; }
+.pdp__ref{
+  color: var(--ink-soft);
+  margin-top: 24px; padding-top: 18px;
+  border-top: 1px solid var(--hair);
+}
+.pdp__add{
+  width: 100%;
+  margin-top: 16px; padding: 15px 20px;
+  border: 1px solid var(--ink); text-align: center;
+  transition: background .35s var(--vt-ease), color .35s var(--vt-ease);
+}
+.pdp__add:hover{ background: var(--ink); color: var(--paper); }
+.pdp__body{
+  margin-top: 22px;
+  font-size: 12px; line-height: 2; letter-spacing: .02em; color: var(--ink-mid);
+}
+.pdp__mas{ margin-top: clamp(30px, 5vh, 54px); }
+.pdp__mas li{ border-top: 1px solid var(--hair); }
+.pdp__mas li:last-child{ border-bottom: 1px solid var(--hair); }
+.pdp__mas button{
+  width: 100%; text-align: left; padding: 14px 0;
+  color: var(--ink-mid); transition: color .3s ease;
+}
+.pdp__mas button:hover{ color: var(--ink); }
+
+/* Una fila y se termina. Zara encadena bloques de imágenes debajo; acá no. */
+.tambien{ padding: clamp(60px, 10vh, 120px) var(--edge) 0; }
+.tambien__t{ color: var(--ink-mid); padding-bottom: clamp(16px, 2.6vh, 28px); }
+.tambien__fila{
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: clamp(10px, 1.4vw, 22px);
+}
+.tambien__fila .cell .ph{ aspect-ratio: 4 / 5; }
+.tambien__fila .paso__t{ padding-top: 12px; }
+.tambien__fila .tambien__precio{ color: var(--ink-mid); padding-top: 3px; display: block; }
+
+/* ===========================================================================
+   MENÚ
+   =========================================================================== */
+.menu{
+  position: fixed; inset: 0; z-index: 90;
+  background: var(--paper);
+  display: grid; grid-template-columns: 1fr 1fr;
+  opacity: 0; visibility: hidden;
+  transition: opacity .45s var(--vt-ease), visibility .45s;
+}
+.menu[data-open="true"]{ opacity: 1; visibility: visible; }
+.menu__x{ position: absolute; top: var(--edge); left: var(--edge); font-size: 14px; }
+.menu__col{
+  padding: calc(var(--edge) + 90px) var(--edge) var(--edge);
+  display: flex; flex-direction: column; justify-content: flex-start;
+  overflow-y: auto;
+}
+.menu__list li + li{ margin-top: 11px; }
+.menu__list button{ font-size: clamp(20px, 2.8vw, 34px); font-weight: 200; letter-spacing: .01em; text-transform: uppercase; }
+.menu__list button:hover{ color: var(--rojo); }
+/* La zona de letra chica del menú: columnas por las que se puede entrar.
+   Salen de PRODUCTOS, PIELES y PASOS, así que no se desfasan del catálogo. */
+.menu__cols{
+  margin-top: clamp(28px, 5.5vh, 56px);
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: clamp(14px, 2vw, 30px);
+  color: var(--ink-mid);
+}
+.menu__cols h3{ margin: 0 0 13px; font: inherit; color: var(--ink); }
+/* Los títulos van en versalitas y las entradas en caja normal. Se declara en
+   el li y no se deja al navegador: el button trae text-transform none por UA
+   y el span heredaba las versalitas de .ui, así que lo único que no se podía
+   clickear era lo que más pesaba. */
+/* Las entradas no son utilería: son la navegación por la que se entra al
+   catálogo, así que salen de --t-ui y suben a 14px. El tracking baja a .02em
+   porque el .06em que ayuda a leer versalitas abre demasiado la caja normal.
+   El h3 queda en 11px versalitas: es antetítulo, y el contraste de tamaño es
+   lo que separa una columna de la siguiente. */
+.menu__cols li{ text-transform: none; font-size: 14px; letter-spacing: .02em; }
+.menu__cols li + li{ margin-top: 9px; }
+.menu__cols button{ text-align: left; transition: color .3s ease; }
+.menu__cols button:hover{ color: var(--ink); }
+.menu__cols .sin{ color: var(--ink-soft); }
+.menu .ph{ height: 100%; }
+
+/* ===========================================================================
+   PIE — centrado y diminuto
+   =========================================================================== */
+.foot{ padding: clamp(50px, 9vh, 110px) var(--edge) 34px; text-align: center; color: var(--ink-mid); }
+.foot__n{ color: var(--ink); }
+.foot__row{ display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; margin-top: 22px; }
+.foot__row a:hover{ color: var(--ink); }
+.foot__seal{ font-family: var(--face-jp); font-size: 19px; letter-spacing: .4em; color: var(--ink-soft); margin-top: 34px; text-transform: none; }
+
+/* ===========================================================================
+   VIEW TRANSITIONS
+   =========================================================================== */
+@view-transition{ navigation: auto; }   /* ← lo que hará el salto en Dawn */
+
+::view-transition-group(*){ animation-duration: var(--vt); animation-timing-function: var(--vt-ease); }
+::view-transition-old(root){ animation: fade-out .34s var(--vt-ease) both; }
+::view-transition-new(root){ animation: fade-in .46s var(--vt-ease) .1s both; }
+/* la imagen compartida no hace cross-fade: se mueve entera */
+::view-transition-old(shot), ::view-transition-new(shot){ animation: none; mix-blend-mode: normal; height: 100%; }
+
+@keyframes fade-out{ to{ opacity: 0 } }
+@keyframes fade-in{ from{ opacity: 0 } }
+
+.shot{ view-transition-name: shot; }
+
+@media (prefers-reduced-motion: reduce){
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*){ animation: none !important; }
+}
+
+/* ===========================================================================
+   MÓVIL
+   =========================================================================== */
+/* --- de 1100 para abajo no hay lugar para el párrafo, pero apilarlo sobre
+       papel dejaba un cuadro blanco cortando la secuencia de imágenes. Va
+       sobre la foto, abajo, reducido a una línea. --- */
+@media (max-width: 1100px){
+  .panel--dice .panel__scrim{
+    -webkit-mask-image: none; mask-image: none;
+    background: linear-gradient(0deg, rgba(14,12,10,.66) 0%, rgba(14,12,10,.24) 30%, rgba(14,12,10,0) 56%);
+  }
+  .dice{
+    left: var(--edge); right: var(--edge); width: auto;
+    top: auto; bottom: clamp(74px, 13vh, 130px); transform: none;
+    max-width: 46ch;
+  }
+  .dice__p{ display: none; }
+  .dice__corto{ display: block; margin-top: 10px; color: rgba(244,243,241,.78); }
+  .dice__mas{ margin-top: 18px; }
+  .panel--dice .panel__cap{ display: none; }
+}
+
+/* --- teléfono ----------------------------------------------------------- */
+@media (max-width: 820px){
+  :root{ --edge: 14px; }
+
+  /* La fila de categorías no entra en un teléfono: vuelve el rótulo del
+     centro y las categorías quedan donde ya estaban, en el menú */
+  .nav{ display: none; }
+  .tag{ display: block; }
+
+  /* la utilería se va arriba: abajo estorbaba al botón de volver y al rótulo */
+  .util{ top: calc(var(--edge) + 36px); bottom: auto; }
+  .util li + li{ display: none; }
+  .seek{ width: 104px; }
+  .tag{ font-size: 15px; }
+  .rules{ width: 48px; height: 14px; }
+
+  .dice{ bottom: clamp(64px, 11vh, 100px); }
+  .dice__t{ font-size: clamp(17px, 4.6vw, 22px); }
+
+  .duo{ grid-template-columns: 1fr; }
+  .mosaico{ grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(13, 1fr); aspect-ratio: 8 / 13; }
+  .m-a{ grid-area: 1 / 1 / 9 / 9;  }
+  .m-b{ grid-area: 9 / 1 / 14 / 6; }
+  .m-c{ grid-area: 9 / 6 / 12 / 9; }
+  .m-d{ grid-area: 12 / 6 / 14 / 9; }
+
+  .pdp{ grid-template-columns: 1fr; }
+  .pdp__art .ph{ position: relative; height: 82svh; }
+  .pdp__side{ padding: 34px var(--edge) 0; }
+  .pdp__side > *{ max-width: none; }
+  .tambien__fila{ grid-template-columns: repeat(2, 1fr); }
+  .menu{ grid-template-columns: 1fr; }
+  .menu .ph{ display: none; }
+  .menu__col{ padding-top: calc(var(--edge) + 64px); }
+  .menu__list button{ font-size: clamp(19px, 6vw, 26px); }
+  .menu__cols{ grid-template-columns: repeat(2, 1fr); gap: 26px 20px; }
+  .menu__cols li{ font-size: 15px; }
+
+  /* --- comprar por categoría --- */
+  /* una ficha y media a la vista: la que asoma es lo único que avisa que el
+     riel se arrastra */
+  .entradas{ padding-top: clamp(56px, 9vh, 90px); }
+  .rail{ grid-auto-columns: clamp(180px, 62vw, 300px); }
+  .paso__t{ padding-top: 11px; }
+
+  /* --- bloques --- */
+  /* una columna, foto a sangre arriba y texto debajo; espejar deja de tener
+     sentido cuando no quedan dos columnas que espejar */
+  .bloque,
+  .bloque--der{ grid-template-columns: 1fr; }
+  .bloque--der .bloque__art{ order: 0; }
+  .bloque__txt{ padding: clamp(22px, 6vw, 34px) var(--edge) 0; max-width: none; }
+  .bloque__p{ max-width: none; }
+  .bloque__lista{ gap: 8px 18px; }
+  .btn{ width: 100%; min-width: 0; margin-top: 24px; }
+
+  /* el círculo de volver arriba pasa a 44px, que es el mínimo que un dedo
+     acierta sin mirar */
+  .arriba{ width: 44px; height: 44px; }
+
+  .foot{ padding-top: clamp(44px, 7vh, 72px); }
+  .foot__row{ gap: 14px; }
+}
+
+/* --- teléfono angosto ---------------------------------------------------- */
+@media (max-width: 420px){
+  .mark{ font-size: 15vw; }
+  .seek{ width: 86px; }
+
+  .rail{ grid-auto-columns: 74vw; }
+  .bloque__lista{ gap: 8px 14px; }
+  .btn{ gap: 20px; padding: 14px 16px; }
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- VIENTO — la foto es fija; lo que se mueve es un desplazamiento de
+       píxeles guiado por ruido fractal animado. Sobre un muro liso el ojo
+       solo registra el movimiento donde hay dibujo, o sea en la sombra. -->
+  <filter id="viento" x="-4%" y="-4%" width="108%" height="108%" color-interpolation-filters="sRGB">
+    <feTurbulence id="ruido-viento" type="fractalNoise" baseFrequency="0.0045 0.009"
+                  numOctaves="2" seed="11" result="ruido">
+      <!-- El temblor de cada hoja. Va en SMIL y no en requestAnimationFrame:
+           rAF se congela cuando el navegador deja de pintar la pestaña, y ahí
+           el viento desaparecía entero. Mismo período que el vaivén de CSS
+           para que las dos capas respiren juntas. -->
+      <animate attributeName="baseFrequency" dur="18s" repeatCount="indefinite"
+               values="0.0045 0.0090; 0.0058 0.0118; 0.0044 0.0086; 0.0051 0.0104; 0.0045 0.0090"
+               keyTimes="0; 0.18; 0.5; 0.8; 1"
+               calcMode="spline"
+               keySplines="0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1"/>
+    </feTurbulence>
+    <feDisplacementMap id="soplo-viento" in="SourceGraphic" in2="ruido"
+                       scale="4.4" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+
+  <symbol id="bar3" viewBox="0 0 10 12">
+    <rect x="0" y="0.6" width="10" height="1.05"></rect>
+    <rect x="0" y="5.5" width="10" height="1.05"></rect>
+    <rect x="0" y="10.4" width="10" height="1.05"></rect>
+  </symbol>
+</svg>
+
+<!-- =======================================================================
+     UTILERÍA FIJA
+     ======================================================================= -->
+<button class="rules" id="open" type="button" aria-label="Abrir menú"><span></span><span></span><span></span></button>
+
+<button class="tag" id="tag" type="button" aria-label="Volver al inicio"><b>Nemuri</b></button>
+
+<!-- La fila de categorías ocupa el centro del encabezado, que es donde antes
+     iba el rótulo. El rótulo no se borra: rotulo() le reescribe el contenido
+     en cada cuadro de scroll y es el que dice "Tienda" al entrar, así que
+     sigue en el DOM y vuelve a verse en teléfono, donde la fila no cabe. -->
+<nav class="nav ui" id="nav" aria-label="Categorías">
+  <button type="button" data-go="tienda">Tienda</button>
+  <button type="button" data-go="tienda" data-tipo="Tónicos">Tónicos</button>
+  <button type="button" data-go="tienda" data-tipo="Esencias">Esencias</button>
+  <button type="button" data-go="tienda" data-tipo="Cremas">Cremas</button>
+  <button type="button" data-go="tienda" data-tipo="Limpieza">Limpieza</button>
+  <button type="button" data-go="tienda" data-tipo="Protección">Protección</button>
+  <button type="button" data-go="home">El ritual</button>
+</nav>
+<button class="arriba" id="arriba" type="button" data-ver="false" aria-label="Volver arriba">↑</button>
+<span class="mark marca-fija" id="marca" data-ver="true" aria-hidden="true">N<svg class="e"><use href="#bar3"></use></svg>MURI</span>
+
+<div class="seek ui">Buscar</div>
+
+<ul class="util ui">
+  <li><a href="#">Bolsa <span class="count" id="bolsa">0</span></a></li>
+  <li><a href="#">Iniciar sesión</a></li>
+  <li><a href="#">Ayuda</a></li>
+</ul>
+
+<div class="velo" aria-hidden="true"></div>
+
+<!-- =======================================================================
+     MENÚ
+     ======================================================================= -->
+<div class="menu" id="menu" data-open="false" role="dialog" aria-modal="true" aria-label="Menú">
+  <button class="menu__x ui" id="close" type="button">Cerrar</button>
+  <div class="menu__col">
+    <div>
+      <ul class="menu__list">
+        <li><button type="button" data-go="tienda">Novedades</button></li>
+        <li><button type="button" data-go="tienda" data-tipo="Tónicos">Tónicos</button></li>
+        <li><button type="button" data-go="tienda" data-tipo="Esencias">Esencias</button></li>
+        <li><button type="button" data-go="tienda" data-tipo="Cremas">Cremas</button></li>
+        <li><button type="button" data-go="tienda" data-tipo="Limpieza">Limpieza</button></li>
+        <li><button type="button" data-go="tienda" data-tipo="Protección">Protección</button></li>
+      </ul>
+      <div class="menu__cols ui" id="menu-cols"></div>
+    </div>
+  </div>
+  <figure class="ph" data-img="menu"></figure>
+</div>
+
+<main>
+
+<!-- =======================================================================
+     HOME
+     ======================================================================= -->
+<section class="view" id="v-home">
+
+  <div class="panel panel--viento" id="panel-viento">
+    <figure class="ph ph--capas" data-dark="true">
+      <img class="capa-muro" src="img/home-01-muro.jpg" alt="">
+      <img class="capa-sombra" src="img/home-01-sombra.png" alt="">
+    </figure>
+    <div class="panel__scrim"></div>
+    <div class="scroll ui" aria-hidden="true"><span>Scroll</span><i></i></div>
+  </div>
+
+  <div class="panel panel--dice">
+    <figure class="ph" data-img="home2"></figure>
+    <div class="panel__scrim"></div>
+    <p class="panel__cap ui">La línea completa · Cinco pasos</p>
+
+    <div class="dice">
+      <p class="ui" style="color:var(--ink-soft)">Qué es Nemuri</p>
+      <h2 class="dice__t">Cuidado integral.</h2>
+      <p class="dice__p">
+        Descansar no siempre es detenerse. A veces es volver a ti. Entendemos la piel
+        como parte de algo más grande —el cuerpo, la mente y los pequeños momentos que
+        nos devuelven al presente—, así que no hacemos productos sueltos: hacemos los
+        cinco pasos de un ritual que cabe en unos minutos, todas las noches.
+      </p>
+      <p class="dice__corto ui">Cosmetología japonesa · Cinco pasos, todas las noches</p>
+      <a class="dice__mas ui" href="#">El ritual completo</a>
+    </div>
+
+  </div>
+
+  <div class="hold" id="hold">
+    <div class="turn">
+      <!-- El agua no se reproduce: se scrubbea. El mismo --p que llena la
+           barra mueve el currentTime, así que la onda se abre al ritmo del
+           dedo y se queda quieta si el scroll se queda quieto. -->
+      <video class="turn__agua" id="agua"
+             src="video/novedades-ondas.mp4"
+             poster="video/novedades-ondas-poster.jpg"
+             muted playsinline preload="auto"
+             aria-hidden="true" tabindex="-1"></video>
+      <div class="turn__velo" aria-hidden="true"></div>
+      <p class="turn__t">Novedades</p>
+      <p class="turn__sub ui" id="turn-sub">Desplázate hacia abajo</p>
+      <span class="turn__line"><i></i></span>
+    </div>
+  </div>
+
+  <!-- Todo lo que sigue es la misma página: el corte de Novedades no navega,
+       se gasta. Una vez que la barra se llenó, el bloque se encoge a una
+       pantalla y el scroll para arriba devuelve al landing sin rehacerlo. -->
+  <div class="duo" id="duo"></div>
+  <div class="mosaico" id="mos"></div>
+
+  <section class="entradas">
+    <h2 class="entradas__titulo">Explorar por categoría</h2>
+    <div class="carrusel">
+      <div class="rail" id="pasos"></div>
+    </div>
+  </section>
+
+  <section class="bloque">
+    <div class="bloque__art"><figure class="ph" data-img="bpiel"></figure></div>
+    <div class="bloque__txt">
+      <p class="bloque__eyebrow ui">Cada piel, su ritual</p>
+      <h2 class="bloque__t">Los mismos cinco pasos, en otra proporción.</h2>
+      <p class="bloque__p">
+        Tres de estos tipos describen cómo es tu piel y dos describen cómo está hoy.
+        No son lo mismo, y por eso se eligen por separado: la rutina no cambia de pasos,
+        cambia de dosis.
+      </p>
+      <div class="bloque__lista ui" id="pieles"></div>
+      <a class="btn ui" href="#" id="ir-piel">Encontrar la tuya <span aria-hidden="true">→</span></a>
+    </div>
+  </section>
+
+  <section class="bloque bloque--der">
+    <div class="bloque__art"><figure class="ph" data-img="blineas"></figure></div>
+    <div class="bloque__txt">
+      <p class="bloque__eyebrow ui">Lo que viene</p>
+      <h2 class="bloque__t">El descanso no termina en la cara.</h2>
+      <p class="bloque__p">
+        La misma cosmetología, en formatos que todavía estamos formulando. Si querés
+        que te avisemos cuando salgan, dejanos tu correo.
+      </p>
+      <div class="bloque__lista ui" id="lineas"></div>
+      <a class="btn ui" href="#">Avisarme <span aria-hidden="true">→</span></a>
+    </div>
+  </section>
+
+  <footer class="foot ui">
+    <p class="foot__n">Únete a nuestra newsletter</p>
+    <div class="foot__row">
+      <a href="#">Instagram</a><a href="#">TikTok</a><a href="#">Pinterest</a><a href="#">Spotify</a>
+    </div>
+    <div class="foot__row">
+      <a href="#">Envíos</a><a href="#">Cambios y devoluciones</a><a href="#">Privacidad</a><a href="#">Condiciones de compra</a>
+    </div>
+    <p class="foot__seal" aria-hidden="true">ねむり</p>
+  </footer>
+</section>
+
+<!-- =======================================================================
+     PRODUCTO
+     ======================================================================= -->
+<section class="view" id="v-producto" hidden>
+  <div class="pdp">
+    <div class="pdp__art"><figure class="ph" id="pdp-ph"></figure></div>
+
+    <div class="pdp__side">
+      <p class="pdp__tipo ui" id="pdp-tipo"></p>
+      <h1 class="pdp__name" id="pdp-name"></h1>
+      <p class="pdp__price ui" id="pdp-price"></p>
+
+      <p class="pdp__ref ui" id="pdp-ref"></p>
+      <button class="pdp__add ui" type="button" id="pdp-add">Añadir</button>
+      <p class="pdp__body" id="pdp-body"></p>
+
+      <ul class="pdp__mas ui">
+        <li><button type="button">El ritual</button></li>
+        <li><button type="button">Ingredientes</button></li>
+        <li><button type="button">Envíos, cambios y devoluciones</button></li>
+      </ul>
+    </div>
+  </div>
+
+  <section class="tambien">
+    <p class="tambien__t ui">También te puede interesar</p>
+    <div class="tambien__fila" id="tambien"></div>
+  </section>
+
+  <footer class="foot ui">
+    <p class="foot__n">Únete a nuestra newsletter</p>
+    <div class="foot__row"><a href="#">Instagram</a><a href="#">TikTok</a><a href="#">Pinterest</a></div>
+    <p class="foot__seal" aria-hidden="true">ねむり</p>
+  </footer>
+</section>
+
+</main>
+
+<script>
+/* ===========================================================================
+   MAPA DE IMÁGENES — el archivo que falte cae al plano de sombra vegetal
+   =========================================================================== */
+const IMGS = {
+  /* el panel 1 ya no pasa por acá: va en dos capas, muro y sombra */
+  home2: 'img/home-03.jpg',   /* el segundo panel es el ritual de noche */
+  menu:  'img/home-02.jpg',
+
+  p1: 'img/producto-tonico.jpg',
+  p2: 'img/producto-facial.jpg',
+  p3: 'img/producto-limpiador.jpg',
+  p4: 'img/producto-crema.jpg',
+  p5: 'img/producto-esencia.jpg',
+  p6: 'img/producto-protector.jpg',
+
+  /* Las de abajo todavía no existen. Cada una lleva su respaldo: la página
+     usa la que hay hasta que aparezca la definitiva con ese nombre, y ahí
+     sola se cambia. Formato en img/README.md. */
+  cat1: ['img/categoria-limpiar.jpg',   'img/producto-limpiador.jpg'],
+  cat2: ['img/categoria-tonificar.jpg', 'img/producto-tonico.jpg'],
+  cat3: ['img/categoria-tratar.jpg',    'img/producto-esencia.jpg'],
+  cat4: ['img/categoria-sellar.jpg',    'img/producto-crema.jpg'],
+  cat5: ['img/categoria-proteger.jpg',  'img/producto-protector.jpg'],
+
+  bpiel:   ['img/bloque-piel.jpg',    'img/alt/uso-02.jpg'],
+  blineas: ['img/bloque-lineas.jpg',  'img/alt/sakura-02.jpg']
+};
+
+const PRODUCTOS = [
+  { k:'p1', n:'Tónico Hidratante',   p:'CLP 28.900', t:'Tónicos',    rojo:false, s:3,
+    d:'Tónico Hidratante|Hialurónico|Aplicación nocturna',
+    b:'Hialurónico de bajo peso molecular en base de agua de arroz fermentada. Devuelve agua a la piel sin sellarla, para que el descanso haga el resto. 150 ml.' },
+  { k:'p2', n:'Facial Hidratante',   p:'CLP 19.900', t:'Tónicos',    rojo:true,  s:8,
+    d:'Facial Hidratante|Hialurónico|Aplicación diurna',
+    b:'La versión de día de la línea Hialurónico, en formato de un solo uso. Edición sello. 25 ml.' },
+  { k:'p3', n:'Limpiador en Aceite', p:'CLP 24.900', t:'Limpieza',   rojo:false, s:14,
+    d:'Limpiador en Aceite|Arroz fermentado|Primer paso',
+    b:'Primer paso de la doble limpieza. Disuelve protector solar y maquillaje sin arrastrar la barrera. 200 ml.' },
+  { k:'p4', n:'Crema de Noche',      p:'CLP 39.900', t:'Cremas',     rojo:false, s:27,
+    d:'Crema de Noche|Ceramidas|Aplicación nocturna',
+    b:'Ceramidas y escualano para sellar el agua que dejaron los pasos anteriores. Se aplica al final, siempre. 50 ml.' },
+  { k:'p5', n:'Esencia de Arroz',    p:'CLP 32.900', t:'Esencias',   rojo:true,  s:33,
+    d:'Esencia de Arroz|Fermentado|Aplicación diaria',
+    b:'Fermentado de arroz en base acuosa, entre el tónico y la crema. Textura de agua, sin perfume. 120 ml.' },
+  { k:'p6', n:'Protector Diario',    p:'CLP 26.900', t:'Protección', rojo:false, s:41,
+    d:'Protector Diario|SPF 50+|Aplicación diurna',
+    b:'SPF 50+ de filtro mineral, acabado invisible. El único paso que no se salta ningún día. 50 ml.' }
+];
+
+const RITUAL = [
+  'Sobre la piel limpia y todavía húmeda',
+  'Tres presiones en la palma, sin algodón',
+  'Presionar, no frotar. Esperar un minuto',
+  'Sellar con la crema de noche'
+];
+
+const MARK = 'N<svg class="e"><use href="#bar3"></use></svg>MURI';
+const porK = {};
+PRODUCTOS.forEach(function(it){ porK[it.k] = it; });
+
+/* ---------------------------------------------------------------------------
+   Plano de sombra vegetal — el relleno mientras no hay foto
+   --------------------------------------------------------------------------- */
+function rng(seed){ let s = seed * 9301 + 49297; return function(){ s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+
+function hoja(ctx, x, y, r, rot, a){
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+  ctx.fillStyle = 'rgba(38,36,33,' + a + ')';
+  for (let i = 0; i < 5; i++){
+    const ang = (-Math.PI * .72) + (i / 4) * (Math.PI * 1.44);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(Math.cos(ang - .17) * r * .7, Math.sin(ang - .17) * r * .7, Math.cos(ang) * r, Math.sin(ang) * r);
+    ctx.quadraticCurveTo(Math.cos(ang + .17) * r * .7, Math.sin(ang + .17) * r * .7, 0, 0);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function plate(fig){
+  if (fig.dataset.painted) return;
+  fig.dataset.painted = '1';
+  const dark = fig.dataset.dark === 'true';
+  const w = Math.max(fig.clientWidth, 240), h = Math.max(fig.clientHeight, 240);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = dark ? '#23221F' : '#EDECE9';
+  ctx.fillRect(0, 0, w, h);
+  const rand = rng(Number(fig.dataset.seed || 7));
+  const n = Math.max(8, Math.min(34, Math.round(w * h / 40000)));
+  for (let i = 0; i < n; i++){
+    const t = (i + .5) / n;
+    const x = w * .06 + (w * .88) * ((t * 2.7) % 1) + (rand() - .5) * w * .18;
+    const y = h * t + (rand() - .5) * h * .3;
+    hoja(ctx, x, y, h * (.05 + rand() * .055), rand() * Math.PI * 2, (dark ? .32 : .2) + rand() * .16);
+  }
+  c.style.filter = 'blur(' + (dark ? 11 : 8) + 'px)';
+  c.style.opacity = dark ? '1' : '.55';
+  fig.prepend(c);
+
+  if (fig.dataset.carton){
+    const box = document.createElement('div');
+    box.className = 'carton' + (fig.dataset.rojo === 'true' ? ' carton--rojo' : '');
+    box.innerHTML = '<span class="mark mark--xs">' + MARK + '</span>' +
+      '<span class="carton__d">' + fig.dataset.carton.split('|').join('<br>') + '</span>';
+    fig.appendChild(box);
+  }
+}
+
+function fill(fig){
+  if (fig.dataset.filled) return;
+  fig.dataset.filled = '1';
+  if (fig.querySelector('img')) return;      /* el panel del viento ya trae capas */
+  const src = IMGS[fig.dataset.img];
+  if (!src){ plate(fig); return; }
+  const cola = Array.isArray(src) ? src.slice() : [src];
+
+  (function probar(){
+    if (!cola.length){ delete fig.dataset.painted; plate(fig); return; }
+    const uno = cola.shift();
+    const probe = new Image();
+    probe.onload = function(){
+      const el = document.createElement('img');
+      el.src = uno; el.alt = '';
+      fig.prepend(el);
+    };
+    probe.onerror = probar;
+    probe.src = uno;
+  })();
+}
+function fillAll(root){ (root || document).querySelectorAll('.ph').forEach(fill); }
+
+/* ---------------------------------------------------------------------------
+   Piezas
+   --------------------------------------------------------------------------- */
+function celda(it, clase){
+  return '<button class="cell ' + (clase || '') + '" type="button" data-k="' + it.k + '">' +
+    '<figure class="ph" data-img="' + it.k + '" data-seed="' + it.s + '" data-carton="' + it.d + '"' +
+      (it.rojo ? ' data-rojo="true"' : '') + '></figure>' +
+    '<span class="cell__meta ui"><b>' + it.n + '</b><span>' + it.p + '</span></span>' +
+  '</button>';
+}
+
+/* 1 · dos columnas */
+document.getElementById('duo').innerHTML = [0, 1].map(function(i){ return celda(PRODUCTOS[i]); }).join('');
+
+/* 2 · mosaico de Fibonacci: cuatro piezas, de mayor a menor */
+const AREAS = ['m-a', 'm-b', 'm-c', 'm-d'];
+document.getElementById('mos').innerHTML = [2, 4, 3, 5].map(function(i, n){
+  return celda(PRODUCTOS[i], AREAS[n]);
+}).join('');
+
+/* 3 · las dos entradas al catálogo */
+const PASOS = [
+  { n:'01', t:'Limpiar',   q:'Primer paso, sobre la piel seca', k:'p3' },
+  { n:'02', t:'Tonificar', q:'Devolver agua, sin sellar',       k:'p1' },
+  { n:'03', t:'Tratar',    q:'El fermentado, en piel húmeda',   k:'p5' },
+  { n:'04', t:'Sellar',    q:'Lo último de la noche',           k:'p4' },
+  { n:'05', t:'Proteger',  q:'El paso que no se salta',         k:'p6' }
+];
+
+const PIELES = [
+  { n:'01', t:'Normal',   q:'Equilibrio',      k:'p1' },
+  { n:'02', t:'Grasa',    q:'Exceso de sebo',  k:'p3' },
+  { n:'03', t:'Seca',     q:'Falta de agua',   k:'p4' },
+  { n:'04', t:'Sensible', q:'Reactividad',     k:'p5' },
+  { n:'05', t:'Acneica',  q:'Congestión',      k:'p6' }
+];
+
+document.getElementById('pasos').innerHTML = PASOS.map(function(it, n){
+  const pr = porK[it.k];
+  return '<button class="paso cell" type="button" data-k="' + it.k + '">' +
+    '<figure class="ph" data-img="cat' + (n + 1) + '" data-seed="' + pr.s + '"></figure>' +
+    '<p class="paso__t">' + it.t + '</p>' +
+  '</button>';
+}).join('');
+
+/* Otras líneas: todavía no hay productos, así que se anuncian y nada más */
+document.getElementById('lineas').innerHTML =
+  ['Cuerpo', 'Cabello', 'Fragancia'].map(function(t){ return '<span>' + t + '</span>'; }).join('');
+
+document.getElementById('pieles').innerHTML = PIELES.map(function(it){
+  return '<button type="button" data-k="' + it.k + '">' + it.t + '</button>';
+}).join('');
+
+/* los pasos abren la ficha con la misma transición que el mosaico; las
+   filas de piel no llevan foto, así que entran sin elemento compartido */
+document.getElementById('pieles').addEventListener('click', function(e){
+  const b = e.target.closest('button');
+  if (b) abrir(b.dataset.k);
+});
+
+/* Las columnas del menú salen de los mismos datos que el catálogo: así no
+   se queda ninguna categoría afuera, como pasaba con Esencias. */
+(function(){
+  const tipos = [];
+  PRODUCTOS.forEach(function(it){
+    if (!tipos.some(function(t){ return t.t === it.t; })) tipos.push({ t: it.t, k: it.k });
+  });
+
+  const COLUMNAS = [
+    { h: 'Productos',    items: tipos },
+    { h: 'Por uso',      items: PASOS.map(function(x){ return { t: x.t, k: x.k }; }) },
+    { h: 'Por piel',     items: PIELES.map(function(x){ return { t: x.t, k: x.k }; }) },
+    { h: 'Otras líneas', items: [{ t:'Cuerpo' }, { t:'Cabello' }, { t:'Fragancia' }] }
+  ];
+
+  document.getElementById('menu-cols').innerHTML = COLUMNAS.map(function(c){
+    return '<div><h3>' + c.h + '</h3><ul>' + c.items.map(function(i){
+      return '<li>' + (i.k
+        ? '<button type="button" data-k="' + i.k + '">' + i.t + '</button>'
+        : '<span class="sin">' + i.t + '</span>') + '</li>';
+    }).join('') + '</ul></div>';
+  }).join('');
+
+  document.getElementById('menu-cols').addEventListener('click', function(e){
+    const b = e.target.closest('button');
+    if (!b) return;
+    menu(false);
+    if (document.getElementById('v-home').hidden) history.back();
+    setTimeout(function(){ abrir(b.dataset.k); }, document.getElementById('v-home').hidden ? 620 : 0);
+  });
+})();
+
+/* ---------------------------------------------------------------------------
+   El soplo. Mueve la frecuencia del ruido que alimenta el desplazamiento: dos
+   senos de períodos distintos, que es lo que evita que se note el bucle. Va
+   por rAF y no por SMIL, que en un <svg> de tamaño cero no siempre corre.
+   --------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   El viento es declarativo: el vaivén son keyframes de CSS y el temblor un
+   <animate> de SMIL dentro del filtro. Los dos corren sin depender de
+   requestAnimationFrame, que se congela apenas el navegador deja de pintar la
+   pestaña — con rAF el efecto simplemente no existía.
+
+   Lo único que queda en JS es una escritura al cargar: la escala del
+   desplazamiento no se puede expresar en CSS, así que se deriva de --viento
+   para que la perilla siga siendo una sola.
+   --------------------------------------------------------------------------- */
+(function(){
+  const desplazamiento = document.getElementById('soplo-viento');
+  if (!desplazamiento) return;
+  const fuerza = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--viento')) || 0.4;
+  desplazamiento.setAttribute('scale', (14 * fuerza).toFixed(2));
+})();
+
+/* Una fila de cuatro, la que sea distinta del producto abierto */
+function tambien(k){
+  const otros = PRODUCTOS.filter(function(it){ return it.k !== k; }).slice(0, 4);
+  document.getElementById('tambien').innerHTML = otros.map(function(it){
+    return '<button class="cell" type="button" data-k="' + it.k + '">' +
+      '<figure class="ph" data-img="' + it.k + '" data-seed="' + it.s + '"></figure>' +
+      '<p class="paso__t">' + it.n + '</p>' +
+      '<span class="tambien__precio ui">' + it.p + '</span>' +
+    '</button>';
+  }).join('');
+}
+
+/* ---------------------------------------------------------------------------
+   Vistas. El landing es UNO solo: paneles, corte y tienda viven en la misma
+   página, así que volver arriba es scrollear. La ficha sí es otra vista, con
+   su address, y el atrás del navegador devuelve al landing donde estabas.
+   --------------------------------------------------------------------------- */
+let vista = 'home';
+let vuelta = 0;          /* dónde estaba el landing antes de abrir la ficha */
+
+function pintar(name, k){
+  vista = name;
+  document.getElementById('v-home').hidden = name !== 'home';
+  document.getElementById('v-producto').hidden = name !== 'producto';
+  document.getElementById('tag').innerHTML = name === 'producto' ? '' : '<b>Nemuri</b>';
+  document.getElementById('marca').dataset.ver = String(name === 'home');
+
+  if (name === 'producto'){
+    ficha(k);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  } else {
+    window.scrollTo({ top: vuelta, behavior: 'instant' });
+    rotulo();
+  }
+  fillAll();
+  vigilar();   /* la ficha crea su propio .ph, hay que volver a observar */
+}
+
+/* startViewTransition devuelve promesas que rechazan cuando la transición se
+   aborta o se pisa con otra. El salto igual ocurre, pero sin atraparlas la
+   consola se llena de InvalidStateError. */
+function transicion(fn){
+  if (!document.startViewTransition){ fn(); return; }
+
+  /* El cambio de estado no puede depender de que la animación salga bien. Si
+     la transición se aborta o se queda colgada —pasa cuando la pestaña no se
+     está pintando, o cuando se pisa con otra— el callback puede no ejecutarse
+     nunca y la vista se queda como estaba. La guarda hace que corra una sola
+     vez, venga por donde venga. */
+  let corrio = false;
+  const correr = function(){ if (corrio) return; corrio = true; fn(); };
+
+  const t = document.startViewTransition(correr);
+  t.updateCallbackDone.catch(correr);
+  t.finished.catch(function(){});
+  t.ready.catch(function(){});
+  setTimeout(correr, 300);
+}
+
+function abrir(k, origen){
+  vuelta = window.scrollY;
+  if (origen) origen.classList.add('shot');
+  const pasar = function(){
+    if (origen) origen.classList.remove('shot');
+    pintar('producto', k);
+  };
+  history.pushState({ v: 'producto', k: k, y: vuelta }, '', location.pathname + '#producto-' + k);
+  transicion(pasar);
+}
+
+window.addEventListener('popstate', function(e){
+  const st = e.state || {};
+  if (typeof st.y === 'number') vuelta = st.y;
+  const pasar = function(){ pintar(st.v || 'home', st.k); };
+  transicion(pasar);
+});
+
+/* ---------------------------------------------------------------------------
+   El corte de Novedades. Se gasta una sola vez: cuando la barra llega abajo,
+   el bloque se encoge a una pantalla y se compensa el scroll en el mismo
+   cuadro, así no salta nada y para arriba ya no hay nada que rehacer.
+   --------------------------------------------------------------------------- */
+const hold = document.getElementById('hold');
+let gastado = false;   /* la barra ya se llenó */
+let plegado = false;   /* y además el bloque ya se quitó del documento */
+
+/* El corte se resuelve en dos tiempos, y ese es el punto. Antes colapsaba el
+   bloque en el mismo instante en que la barra se llenaba y saltaba con un
+   scrollTo: como el bloque todavía ocupaba el viewport, lo que aparecía
+   quedaba corrido. Ahora al llenarse no se mueve nada —el corte sale de
+   pantalla por scroll, como cualquier sección— y recién cuando quedó
+   completamente arriba se lo pliega, compensando su alto en el mismo cuadro.
+   Como ya no se ve, la compensación es invisible. */
+function gastar(){
+  if (gastado) return;
+  gastado = true;
+  hold.style.setProperty('--p', '1');
+  ondas(1);                 /* que el agua no quede congelada a media onda */
+}
+
+function plegar(){
+  if (plegado || !gastado) return;
+  const r = hold.getBoundingClientRect();
+  if (r.bottom > -2) return;                /* todavía asoma: no es momento */
+  plegado = true;
+  /* posición absoluta, no relativa: al encogerse el documento el navegador ya
+     recorta el scroll por su cuenta, y un scrollBy le restaba el alto dos
+     veces — de ahí que lo que aparecía quedara corrido. */
+  const destino = window.scrollY - hold.offsetHeight;
+  hold.dataset.hecho = '1';
+  window.scrollTo({ top: Math.max(0, destino), behavior: 'instant' });
+}
+
+/* El menú y la flecha sí saltan a un destino, así que ahí se pliega de una */
+function darPorVisto(){
+  gastado = true; plegado = true;
+  hold.style.setProperty('--p', '1');
+  hold.dataset.hecho = '1';
+}
+
+function rotulo(){
+  const duo = document.getElementById('duo').getBoundingClientRect();
+  const dentro = duo.top < window.innerHeight * .6;
+  document.getElementById('tag').innerHTML = dentro ? 'Tienda' : '<b>Nemuri</b>';
+  /* El logotipo va fijo mientras pasan los dos paneles y al final queda
+     anclado al pie de la segunda imagen: cuando el borde inferior del panel
+     sube por encima de su línea de reposo, lo acompaña y se va con la foto.
+     Antes simplemente desaparecía y se notaba el corte. */
+  const marca = document.getElementById('marca');
+  const ultimo = document.querySelectorAll('.panel')[1];
+  if (ultimo){
+    const vh = window.innerHeight;
+    const reposo = Math.min(Math.max(60, vh * 0.13), 130);   /* el clamp del CSS */
+    const abajo = ultimo.getBoundingClientRect().bottom;
+    marca.style.bottom = (reposo + Math.max(0, vh - abajo)) + 'px';
+    marca.dataset.ver = String(abajo > 0);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   ¿Hay foto debajo del encabezado? De eso depende si la utilería va en
+   difference sobre un velo, o en tinta plana sobre el papel. Se resuelve
+   midiendo cajas contra la banda del encabezado: un IntersectionObserver
+   sería más barato pero acá no dispara.
+   --------------------------------------------------------------------------- */
+const BANDA = 78;
+
+/* Antes esto era un solo booleano para toda la franja, y en cualquier layout
+   partido —la ficha de producto, los bloques 50/50— la mitad de la utilería
+   quedaba blanca sobre papel y desaparecía. Ahora se mira por sector: qué hay
+   debajo de la izquierda, del centro y de la derecha, cada uno por su cuenta.
+   El velo solo entra cuando la foto cruza los tres, o sea cuando es a sangre. */
+const agua = document.getElementById('agua');
+/* ¿El agua del corte se lee como papel o como foto? Multiplicada contra el
+   papel se lee como papel: los claros del clip SON el papel y lo único oscuro
+   son la onda y la hoja, así que la utilería tiene que quedarse en tinta. Solo
+   si alguien la vuelve una capa opaca y además le baja el velo, el agua pasa a
+   contar como foto y el encabezado la ve. Vive acá y no en el CSS porque es
+   una decisión de contraste, no de estilo. */
+const LAVADO_TAPA = 0.40;
+function VELO_TAPA(v){
+  const t = v.closest('.turn');
+  if (!t) return true;
+  if (getComputedStyle(v).mixBlendMode === 'multiply') return true;
+  const n = parseFloat(getComputedStyle(t).getPropertyValue('--agua-lavado'));
+  return !(n < LAVADO_TAPA);
+}
+
+function vigilar(){
+  const v = document.getElementById('panel-viento');
+  if (v){
+    const r = v.getBoundingClientRect();
+    v.dataset.quieto = String(r.bottom < 0 || r.top > window.innerHeight);
+  }
+
+  const vw = window.innerWidth;
+  const puntos = [vw * 0.06, vw * 0.5, vw * 0.94];
+  const hay = [false, false, false];
+
+  /* Las cajas a medir son las fotos, y el agua del corte solo cuando el velo
+     de papel la deja leerse como imagen. Con el lavado alto (el de hoy, .52)
+     el fondo es papel y la utilería tiene que quedarse en tinta; si alguien
+     baja el lavado, el agua pasa a contar y el encabezado la ve. El umbral
+     está acá y no en el CSS porque es una decisión de contraste, no de estilo. */
+  const cajas = [].slice.call(document.querySelectorAll('.ph'));
+  if (agua && !VELO_TAPA(agua)) cajas.push(agua);
+
+  cajas.forEach(function(f){
+    if (f.checkVisibility && !f.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return;
+    if (!f.offsetParent && f.offsetHeight === 0) return;
+    const r = f.getBoundingClientRect();
+    if (r.top >= BANDA || r.bottom <= 0 || r.width <= 0) return;
+    puntos.forEach(function(x, n){ if (x >= r.left && x <= r.right) hay[n] = true; });
+  });
+
+  const b = document.body.dataset;
+  b.fotoIzq = String(hay[0]);
+  b.fotoCentro = String(hay[1]);
+  b.fotoDer = String(hay[2]);
+  b.foto = String(hay[0] && hay[1] && hay[2]);
+}
+vigilar();
+
+/* El agua del corte de Novedades. No se reproduce nunca: el scroll mueve el
+   currentTime, así que la onda avanza con el dedo y se detiene con él. El mp4
+   está recodificado con TODOS los cuadros clave (128 de 128) — el original
+   traía uno solo y saltar a un tiempo arbitrario obligaba a decodificar desde
+   el principio, que es lo que hace que un scrub se vea a tirones.
+
+   Una búsqueda por evento de scroll encola más de las que el decodificador
+   despacha, así que se guarda la última pedida y se sirve recién cuando la
+   anterior terminó. El const del elemento está arriba, junto a vigilar(), que
+   lo necesita para decidir si el agua cuenta como foto. */
+const aguaQuieta = matchMedia('(prefers-reduced-motion: reduce)');
+let aguaDur = 0, aguaPide = -1, aguaBusca = false, aguaRed = 0;
+
+if (agua){
+  agua.addEventListener('loadedmetadata', function(){
+    aguaDur = agua.duration || 0;
+    /* Algunos navegadores no entregan un cuadro hasta que el video se tocó
+       una vez. Un play mudo e inmediatamente pausado ceba el decodificador
+       sin que se vea reproducir nada. Con movimiento reducido ni eso: no se
+       ceba, no se busca nunca, y queda el póster quieto. */
+    if (aguaQuieta.matches) return;
+    const t = agua.play();
+    if (t && t.then) t.then(function(){ agua.pause(); }).catch(function(){});
+  });
+  agua.addEventListener('seeked', aguaSuelta);
+  agua.addEventListener('error', aguaSuelta);
+}
+
+/* Se abre el pestillo y se sirve la última posición que quedó pedida. */
+function aguaSuelta(){
+  clearTimeout(aguaRed);
+  aguaBusca = false;
+  if (aguaPide >= 0){ const t = aguaPide; aguaPide = -1; aguaVa(t); }
+}
+
+function aguaVa(t){
+  if (aguaBusca){ aguaPide = t; return; }
+  /* Pedir el tiempo en el que ya estamos no dispara ningún seeked, y el
+     pestillo quedaría cerrado para siempre: todas las posiciones siguientes
+     se guardarían en aguaPide y ninguna se serviría. Y es justo el caso más
+     común — la primera petición del corte es p=0 con el video en 0. */
+  if (Math.abs(agua.currentTime - t) < 0.02) return;
+  aguaBusca = true;
+  agua.currentTime = t;
+  /* Red por si el seeked no llega igual: el decodificador duerme cuando la
+     pestaña está tapada, y un corte de red a mitad del clip tampoco avisa. */
+  clearTimeout(aguaRed);
+  aguaRed = setTimeout(aguaSuelta, 600);
+}
+
+/* p es el mismo 0..1 que llena la barra */
+function ondas(p){
+  if (!agua || !aguaDur || aguaQuieta.matches) return;
+  /* pedir exactamente la duración deja el cuadro en negro en algunos
+     navegadores, así que el final se queda un pelo antes */
+  aguaVa(Math.min(p, .995) * aguaDur);
+}
+
+function barra(){
+  vigilar();
+  if (vista !== 'home') return;
+  rotulo();
+  plegar();                 /* antes iba después del return y no corría nunca */
+  if (gastado) return;
+
+  const r = hold.getBoundingClientRect();
+  const recorrido = hold.offsetHeight - window.innerHeight;
+  const p = Math.max(0, Math.min(1, -r.top / (recorrido || 1)));
+  hold.style.setProperty('--p', p.toFixed(4));
+  ondas(p);
+  document.getElementById('turn-sub').style.opacity = String(1 - Math.min(1, p * 1.6));
+  if (p >= .995) gastar();
+}
+window.addEventListener('scroll', barra, { passive: true });
+
+const btnArriba = document.getElementById('arriba');
+btnArriba.addEventListener('click', function(){ window.scrollTo({ top: 0, behavior: 'smooth' }); });
+window.addEventListener('scroll', function(){
+  btnArriba.dataset.ver = String(window.scrollY > window.innerHeight * 1.6);
+}, { passive: true });
+
+/* el rótulo de arriba devuelve al principio del landing */
+document.getElementById('tag').addEventListener('click', function(){
+  if (vista !== 'home'){ history.back(); return; }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+/* ---------------------------------------------------------------------------
+   Ficha
+   --------------------------------------------------------------------------- */
+function ficha(k){
+  const it = porK[k];
+  if (!it) return;
+
+  const ph = document.getElementById('pdp-ph');
+  ph.innerHTML = '';
+  delete ph.dataset.painted; delete ph.dataset.filled;
+  ph.dataset.img = it.k; ph.dataset.seed = it.s;
+  ph.classList.add('shot');
+
+  document.getElementById('pdp-tipo').textContent = it.t;
+  document.getElementById('pdp-name').textContent = it.n;
+  document.getElementById('pdp-price').textContent = it.p;
+  document.getElementById('pdp-ref').textContent = it.d.split('|').slice(1).join(' · ');
+  document.getElementById('pdp-body').textContent = it.b;
+  tambien(k);
+
+  /* el nombre se libera después del salto: si no, la próxima transición choca */
+  setTimeout(function(){ ph.classList.remove('shot'); }, 900);
+}
+
+/* una sola delegación para las tres zonas de producto */
+document.querySelector('main').addEventListener('click', function(e){
+  const cell = e.target.closest('.cell');
+  if (cell) abrir(cell.dataset.k, cell.querySelector('.ph'));
+});
+
+document.querySelectorAll('[data-go]').forEach(function(b){
+  b.addEventListener('click', function(){
+    menu(false);
+    const destino = b.dataset.go;
+
+    const bajar = function(){
+      if (destino === 'home'){ window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+      darPorVisto();   /* saltamos a un destino: el corte se da por visto */
+      document.getElementById(b.dataset.tipo ? 'pasos' : 'duo')
+        .scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    if (vista !== 'home'){ history.back(); setTimeout(bajar, 700); }
+    else bajar();
+  });
+});
+
+/* Menú */
+const elMenu = document.getElementById('menu');
+function menu(v){ elMenu.dataset.open = String(v); document.body.style.overflow = v ? 'hidden' : ''; }
+document.getElementById('open').addEventListener('click', function(){ menu(true); fillAll(elMenu); });
+document.getElementById('close').addEventListener('click', function(){ menu(false); });
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') menu(false); });
+
+/* Bolsa */
+let bolsa = 0;
+document.getElementById('pdp-add').addEventListener('click', function(){
+  bolsa++; document.getElementById('bolsa').textContent = String(bolsa);
+});
+
+/* Arranque: la URL manda */
+(function(){
+  const h = location.hash;
+  if (h.indexOf('#producto-') === 0){ darPorVisto(); pintar('producto', h.slice(10)); }
+  else pintar('home');
+})();
+
+window.addEventListener('resize', function(){
+  vigilar();
+  clearTimeout(window.__rp);
+  window.__rp = setTimeout(function(){
+    document.querySelectorAll('.ph canvas').forEach(function(c){
+      const f = c.parentElement; c.remove(); delete f.dataset.painted; plate(f);
+    });
+  }, 260);
+});
+</script>
+</body>
+</html>
